@@ -9,34 +9,13 @@ import datetime as dt
 
 load_dotenv() 
 
-# Establish a connection to the MySQL server
-cnx = mysql.connector.connect(user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'),
-                              host=os.getenv('DB_HOST'),
-                              database=os.getenv('DB_DATABASE'))
+# Helper Functions
 
-
-# Use pandas to execute a SQL query and download the data into a DataFrame
-df_matched = pd.read_sql('''
-                SELECT *
-                FROM v_listings_v3_1
-                WHERE (listed_at = CURDATE() - INTERVAL 5 DAY
-                 OR underoffer_at = CURDATE() - INTERVAL 5 DAY
-                 OR sstc_at = CURDATE() - INTERVAL 5 DAY
-                 OR reduced_at = CURDATE() - INTERVAL 5 DAY) and address_id is not null and district = 'M16'
-                ;''', con=cnx)
-
-df_unmatched = pd.read_sql('''
-                SELECT *
-                FROM v_listings_v3_1
-                WHERE (listed_at = CURDATE() - INTERVAL 1 DAY
-                 OR underoffer_at = CURDATE() - INTERVAL 1 DAY
-                 OR sstc_at = CURDATE() - INTERVAL 1 DAY
-                 OR reduced_at = CURDATE() - INTERVAL 1 DAY) and address_id is null
-                ;''', con=cnx)
-
-cnx.close()
 
 def status_id_enum(id):
+    """
+    Sets the status of the record based on what has been seen in the status field.
+    """
     if id == 1:
         return 'onmarket'
     elif id == 2:
@@ -46,6 +25,9 @@ def status_id_enum(id):
     
 
 def get_doc_id_ai_id(address_id):
+    """
+    Obtains the actual lising id so that we can insdert it into the correct document
+    """
     url = f"{os.getenv('ELASTIC_HOSE')}/agent_sample_unified_search_index/_search"
 
     # specify the query
@@ -67,6 +49,9 @@ def get_doc_id_ai_id(address_id):
 
 
 def insert_updated_details_os(row):
+    """
+    Undertake the actual insertion of the records into elastic 
+    """
     doc_id = get_doc_id_ai_id(row['address_id'])
     
     if doc_id:
@@ -103,8 +88,39 @@ def insert_updated_details_os(row):
         print('no doc id')
 
 
-for index,row in df_matched.iterrows():
-    print(df_matched.loc[index,['address_id', 'status_id']])
-    insert_updated_details_os(row)
+def run_update():
+    """
+    Main unpdate function, obtains matched and unmatched listings. 
+    """
+    cnx = mysql.connector.connect(user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'),
+                                host=os.getenv('DB_HOST'),
+                                database=os.getenv('DB_DATABASE'))
 
-exit()
+
+    # Use pandas to execute a SQL query and download the data into a DataFrame
+    df_matched = pd.read_sql('''
+                    SELECT *
+                    FROM v_listings_v3_1
+                    WHERE (listed_at = CURDATE() - INTERVAL 5 DAY
+                    OR underoffer_at = CURDATE() - INTERVAL 5 DAY
+                    OR sstc_at = CURDATE() - INTERVAL 5 DAY
+                    OR reduced_at = CURDATE() - INTERVAL 5 DAY) and address_id is not null and district = 'M16'
+                    ;''', con=cnx)
+
+    df_unmatched = pd.read_sql('''
+                    SELECT *
+                    FROM v_listings_v3_1
+                    WHERE (listed_at = CURDATE() - INTERVAL 1 DAY
+                    OR underoffer_at = CURDATE() - INTERVAL 1 DAY
+                    OR sstc_at = CURDATE() - INTERVAL 1 DAY
+                    OR reduced_at = CURDATE() - INTERVAL 1 DAY) and address_id is null
+                    ;''', con=cnx)
+
+    cnx.close()
+
+
+    # Main control loop to manage the insertion process 
+    for index,row in df_matched.iterrows():
+        print(df_matched.loc[index,['address_id', 'status_id']])
+        insert_updated_details_os(row)
+
